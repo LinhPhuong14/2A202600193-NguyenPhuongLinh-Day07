@@ -9,9 +9,11 @@ from .chunking import (
 from .embeddings import (
     EMBEDDING_PROVIDER_ENV,
     LOCAL_EMBEDDING_MODEL,
+    OPENAI_CHAT_MODEL,
     OPENAI_EMBEDDING_MODEL,
     LocalEmbedder,
     MockEmbedder,
+    OpenAILLM,
     OpenAIEmbedder,
     _mock_embed,
 )
@@ -30,8 +32,10 @@ __all__ = [
     "MockEmbedder",
     "LocalEmbedder",
     "OpenAIEmbedder",
+    "OpenAILLM",
     "_mock_embed",
     "LOCAL_EMBEDDING_MODEL",
     "OPENAI_EMBEDDING_MODEL",
+    "OPENAI_CHAT_MODEL",
     "EMBEDDING_PROVIDER_ENV",
 ]

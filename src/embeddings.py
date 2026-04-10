@@ -5,6 +5,7 @@ import math
 
 LOCAL_EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 OPENAI_EMBEDDING_MODEL = "text-embedding-3-small"
+OPENAI_CHAT_MODEL = "gpt-4o-mini"
 EMBEDDING_PROVIDER_ENV = "EMBEDDING_PROVIDER"
 
 
@@ -56,6 +57,28 @@ class OpenAIEmbedder:
     def __call__(self, text: str) -> list[float]:
         response = self.client.embeddings.create(model=self.model_name, input=text)
         return [float(value) for value in response.data[0].embedding]
+
+
+class OpenAILLM:
+    """OpenAI Chat Completion API-backed LLM."""
+
+    def __init__(self, model_name: str = OPENAI_CHAT_MODEL) -> None:
+        from openai import OpenAI
+
+        self.model_name = model_name
+        self.client = OpenAI()
+
+    def __call__(self, prompt: str) -> str:
+        """Execute a simple chat completion call."""
+        response = self.client.chat.completions.create(
+            model=self.model_name,
+            messages=[
+                {"role": "system", "content": "You are a helpful AI assistant. Answer based on the provided context."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.0
+        )
+        return response.choices[0].message.content or ""
 
 
 _mock_embed = MockEmbedder()

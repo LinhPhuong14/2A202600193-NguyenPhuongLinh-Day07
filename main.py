@@ -7,11 +7,14 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from src.agent import KnowledgeBaseAgent
+from src.chunking import RecursiveChunker
 from src.embeddings import (
     EMBEDDING_PROVIDER_ENV,
     LOCAL_EMBEDDING_MODEL,
+    OPENAI_CHAT_MODEL,
     OPENAI_EMBEDDING_MODEL,
     LocalEmbedder,
+    OpenAILLM,
     OpenAIEmbedder,
     _mock_embed,
 )
@@ -28,8 +31,8 @@ SAMPLE_FILES = [
 ]
 
 
-def load_documents_from_files(file_paths: list[str]) -> list[Document]:
-    """Load documents from file paths for the manual demo."""
+def load_documents_from_files(file_paths: list[str], chunker: RecursiveChunker | None = None) -> list[Document]:
+    """Load documents from file paths and optionally chunk them."""
     allowed_extensions = {".md", ".txt"}
     documents: list[Document] = []
 
@@ -45,77 +48,105 @@ def load_documents_from_files(file_paths: list[str]) -> list[Document]:
             continue
 
         content = path.read_text(encoding="utf-8")
-        documents.append(
-            Document(
-                id=path.stem,
-                content=content,
-                metadata={"source": str(path), "extension": path.suffix.lower()},
+        
+        if chunker:
+            chunks = chunker.chunk(content)
+            for i, chunk_text in enumerate(chunks):
+                documents.append(
+                    Document(
+                        id=f"{path.stem}_v{i}",
+                        content=chunk_text,
+                        metadata={
+                            "source": str(path), 
+                            "doc_id": path.stem,
+                            "chunk_index": i,
+                            "extension": path.suffix.lower()
+                        },
+                    )
+                )
+        else:
+            documents.append(
+                Document(
+                    id=path.stem,
+                    content=content,
+                    metadata={"source": str(path), "doc_id": path.stem, "extension": path.suffix.lower()},
+                )
             )
-        )
 
     return documents
-
-
-def demo_llm(prompt: str) -> str:
-    """A simple mock LLM for manual RAG testing."""
-    preview = prompt[:400].replace("\n", " ")
-    return f"[DEMO LLM] Generated answer from prompt preview: {preview}..."
 
 
 def run_manual_demo(question: str | None = None, sample_files: list[str] | None = None) -> int:
     files = sample_files or SAMPLE_FILES
     query = question or "Summarize the key information from the loaded files."
 
-    print("=== Manual File Test ===")
-    print("Accepted file types: .md, .txt")
-    print("Input file list:")
-    for file_path in files:
-        print(f"  - {file_path}")
-
-    docs = load_documents_from_files(files)
+    print("=== Senior AI Engineer RAG Demo ===")
+    print(f"Targeting Provider: {os.getenv(EMBEDDING_PROVIDER_ENV, 'mock')}")
+    
+    # 1. Setup Chunking Strategy (Optimal: Recursive)
+    chunker = RecursiveChunker(chunk_size=600)
+    
+    # 2. Load and Chunk Documents
+    docs = load_documents_from_files(files, chunker=chunker)
     if not docs:
         print("\nNo valid input files were loaded.")
-        print("Create files matching the sample paths above, then rerun:")
-        print("  python3 main.py")
         return 1
 
-    print(f"\nLoaded {len(docs)} documents")
-    for doc in docs:
-        print(f"  - {doc.id}: {doc.metadata['source']}")
+    print(f"\nIngested {len(docs)} chunks from {len(files)} files.")
 
-    load_dotenv(override=False)
+    # 3. Setup Embedding Provider
+    load_dotenv(override=True)
     provider = os.getenv(EMBEDDING_PROVIDER_ENV, "mock").strip().lower()
-    if provider == "local":
-        try:
-            embedder = LocalEmbedder(model_name=os.getenv("LOCAL_EMBEDDING_MODEL", LOCAL_EMBEDDING_MODEL))
-        except Exception:
-            embedder = _mock_embed
-    elif provider == "openai":
+    
+    llm_fn = None
+    if provider == "openai":
         try:
             embedder = OpenAIEmbedder(model_name=os.getenv("OPENAI_EMBEDDING_MODEL", OPENAI_EMBEDDING_MODEL))
+            llm_instance = OpenAILLM(model_name=os.getenv("OPENAI_CHAT_MODEL", OPENAI_CHAT_MODEL))
+            llm_fn = llm_instance.__call__
+            print(f"Using OpenAI: {OPENAI_EMBEDDING_MODEL} / {OPENAI_CHAT_MODEL}")
+        except Exception as e:
+            print(f"Error initializing OpenAI: {e}. Falling back to mocks.")
+            embedder = _mock_embed
+    elif provider == "local":
+        try:
+            embedder = LocalEmbedder(model_name=os.getenv("LOCAL_EMBEDDING_MODEL", LOCAL_EMBEDDING_MODEL))
+            print(f"Using Local Embedder: {LOCAL_EMBEDDING_MODEL}")
         except Exception:
             embedder = _mock_embed
     else:
         embedder = _mock_embed
+        print("Using Mock Embeddings")
 
-    print(f"\nEmbedding backend: {getattr(embedder, '_backend_name', embedder.__class__.__name__)}")
+    # Mock LLM fallback
+    if not llm_fn:
+        def mock_llm(prompt: str) -> str:
+            return f"[MOCK LLM] I don't have a real LLM configured. Prompt preview: {prompt[:100]}..."
+        llm_fn = mock_llm
 
-    store = EmbeddingStore(collection_name="manual_test_store", embedding_fn=embedder)
+    # 4. Initialize Store and Add Documents
+    store = EmbeddingStore(collection_name="senior_rag_store", embedding_fn=embedder)
     store.add_documents(docs)
 
-    print(f"\nStored {store.get_collection_size()} documents in EmbeddingStore")
-    print("\n=== EmbeddingStore Search Test ===")
+    print(f"\nVector DB Size: {store.get_collection_size()} chunks")
+    
+    # 5. Search Test
+    print("\n=== Retrieval Test ===")
     print(f"Query: {query}")
     search_results = store.search(query, top_k=3)
     for index, result in enumerate(search_results, start=1):
-        print(f"{index}. score={result['score']:.3f} source={result['metadata'].get('source')}")
-        print(f"   content preview: {result['content'][:120].replace(chr(10), ' ')}...")
+        score_val = result.get('score', 0)
+        print(f"{index}. score={score_val:.3f} source={result['metadata'].get('source')}")
+        print(f"   content: {result['content'][:150].replace(chr(10), ' ')}...")
 
-    print("\n=== KnowledgeBaseAgent Test ===")
-    agent = KnowledgeBaseAgent(store=store, llm_fn=demo_llm)
+    # 6. Agent Test (RAG)
+    print("\n=== Agent Generation (RAG) ===")
+    agent = KnowledgeBaseAgent(store=store, llm_fn=llm_fn)
     print(f"Question: {query}")
-    print("Agent answer:")
+    print("-" * 20)
     print(agent.answer(query, top_k=3))
+    print("-" * 20)
+    
     return 0
 
 
