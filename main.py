@@ -1,10 +1,7 @@
-from __future__ import annotations
-
-import os
-import sys
-from pathlib import Path
-
 from dotenv import load_dotenv
+
+# Load environment variables at the very beginning (Senior Best Practice)
+load_dotenv(override=True)
 
 from src.agent import KnowledgeBaseAgent
 from src.chunking import RecursiveChunker
@@ -81,7 +78,8 @@ def run_manual_demo(question: str | None = None, sample_files: list[str] | None 
     query = question or "Summarize the key information from the loaded files."
 
     print("=== Senior AI Engineer RAG Demo ===")
-    print(f"Targeting Provider: {os.getenv(EMBEDDING_PROVIDER_ENV, 'mock')}")
+    provider_init = os.getenv(EMBEDDING_PROVIDER_ENV, "mock")
+    print(f"Targeting Provider: {provider_init}")
     
     # 1. Setup Chunking Strategy (Optimal: Recursive)
     chunker = RecursiveChunker(chunk_size=600)
@@ -95,7 +93,6 @@ def run_manual_demo(question: str | None = None, sample_files: list[str] | None 
     print(f"\nIngested {len(docs)} chunks from {len(files)} files.")
 
     # 3. Setup Embedding Provider
-    load_dotenv(override=True)
     provider = os.getenv(EMBEDDING_PROVIDER_ENV, "mock").strip().lower()
     
     llm_fn = None
@@ -124,8 +121,10 @@ def run_manual_demo(question: str | None = None, sample_files: list[str] | None 
             return f"[MOCK LLM] I don't have a real LLM configured. Prompt preview: {prompt[:100]}..."
         llm_fn = mock_llm
 
-    # 4. Initialize Store and Add Documents
-    store = EmbeddingStore(collection_name="senior_rag_store", embedding_fn=embedder)
+    # 4. Initialize Store with Provider-specific Collection
+    # Senior AI Engineer: Avoid cross-provider dimension mismatch by naming collections by provider
+    collection_name = f"rag_store_{provider}"
+    store = EmbeddingStore(collection_name=collection_name, embedding_fn=embedder)
     store.add_documents(docs)
 
     print(f"\nVector DB Size: {store.get_collection_size()} chunks")

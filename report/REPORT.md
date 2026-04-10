@@ -1,7 +1,8 @@
 # Báo Cáo Lab 7: Embedding & Vector Store
 
 **Họ tên:** Nguyễn Phương Linh - 2A202600193
-**Nhóm:** [Tên nhóm]
+**Nhóm:** 71
+**Nhóm:** Ngô Văn Long, Nguyễn Phương Linh, Nguyễn Hải Đăng, Nguyễn Mạnh Phú
 **Ngày:** 10/04/2026
 
 ---
